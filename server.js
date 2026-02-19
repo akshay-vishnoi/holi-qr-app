@@ -43,6 +43,21 @@ function requireAdmin(req, res, next) {
   }
 }
 
+async function getCapacityLimit() {
+  const r = await pool.query(`SELECT value FROM app_settings WHERE key='capacity_limit'`);
+  return r.rowCount ? Number(r.rows[0].value) : 300;
+}
+
+async function setCapacityLimit(n) {
+  await pool.query(
+    `INSERT INTO app_settings(key, value)
+     VALUES ('capacity_limit', $1)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [String(n)]
+  );
+}
+
+
 // ----- Views -----
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, "views/register.html")));
 app.get("/register", (req, res) => res.sendFile(path.join(__dirname, "views/register.html")));
@@ -167,6 +182,19 @@ app.post("/api/checkin", requireAdmin, async (req, res) => {
       });
     }
 
+    const cap = await getCapacityLimit();
+    const checked = await pool.query(`SELECT COUNT(*)::int AS c FROM registrations WHERE checked_in = TRUE`);
+    const checkedInCount = checked.rows[0].c;
+
+    if (checkedInCount >= cap) {
+      return res.json({
+        ok: true,
+        status: "locked",
+        message: `Entry is locked (capacity reached: ${cap}). Ask admin to increase limit if needed.`,
+        stats: { checkedIn: checkedInCount, capacityLimit: cap }
+      });
+    }
+
     const updated = await pool.query(
       `UPDATE registrations
        SET checked_in = TRUE, checked_in_at = NOW()
@@ -248,6 +276,44 @@ app.post("/api/registrations/undo-checkin", requireAdmin, async (req, res) => {
     res.status(500).json({ ok: false, message: "Undo failed" });
   }
 });
+
+app.get("/api/stats", requireAdmin, async (req, res) => {
+  try {
+    const cap = await getCapacityLimit();
+    const checked = await pool.query(`SELECT COUNT(*)::int AS c FROM registrations WHERE checked_in = TRUE`);
+    const total = await pool.query(`SELECT COUNT(*)::int AS c FROM registrations`);
+
+    const checkedIn = checked.rows[0].c;
+    const totalRegs = total.rows[0].c;
+
+    res.json({
+      ok: true,
+      checkedIn,
+      totalRegs,
+      capacityLimit: cap,
+      locked: checkedIn >= cap
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, message: "Stats failed" });
+  }
+});
+
+app.post("/api/settings/capacity", requireAdmin, async (req, res) => {
+  const n = Number(req.body.capacityLimit);
+  if (!Number.isFinite(n) || n < 1 || n > 100000) {
+    return res.status(400).json({ ok: false, message: "Invalid capacityLimit" });
+  }
+
+  try {
+    await setCapacityLimit(Math.floor(n));
+    res.json({ ok: true, capacityLimit: Math.floor(n) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, message: "Failed to update capacity" });
+  }
+});
+
 
 // ----- Health -----
 app.get("/health", (req, res) => res.json({ ok: true }));

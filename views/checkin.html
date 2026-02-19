@@ -12,10 +12,31 @@
     button{padding:10px 14px;font-weight:700;margin-right:8px}
     .row{display:flex;gap:16px;flex-wrap:wrap}
     .links a{margin-right:12px}
+    #fullOverlay.good { background: #0b7a2a; color: white; }
+    #fullOverlay.bad  { background: #b00020; color: white; }
+    #fullOverlay.warn { background: #b36b00; color: white; }
   </style>
 </head>
 <body>
   <h1>Event Check-in</h1>
+  <div class="box" id="statsBox" style="margin-top:10px;">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+      <b>Checked-in:</b> <span id="checkedInCount">-</span>
+      <b>Total regs:</b> <span id="totalRegs">-</span>
+      <b>Capacity:</b> <span id="capLimit">-</span>
+      <span id="lockState" class="status"></span>
+      <button id="fullscreenBtn" style="margin-left:auto;">Fullscreen Mode</button>
+    </div>
+  </div>
+
+  <div id="fullOverlay" style="display:none;position:fixed;inset:0;z-index:9999;align-items:center;justify-content:center;text-align:center;padding:24px;">
+    <div>
+      <div id="overlayTitle" style="font-size:64px;font-weight:900;line-height:1;"></div>
+      <div id="overlayMsg" style="font-size:28px;margin-top:16px;"></div>
+      <div id="overlaySub" style="font-size:18px;margin-top:10px;opacity:0.9;"></div>
+    </div>
+  </div>
+
   <div class="links">
     <a href="/admin/dashboard">Admin dashboard</a>
     <a href="/admin/logout">Logout</a>
@@ -58,6 +79,51 @@
     let lastQr = null;
     let busy = false;
 
+    const checkedEl = document.getElementById("checkedInCount");
+    const totalEl = document.getElementById("totalRegs");
+    const capEl = document.getElementById("capLimit");
+    const lockEl = document.getElementById("lockState");
+    const fsBtn = document.getElementById("fullscreenBtn");
+
+    const overlay = document.getElementById("fullOverlay");
+    const overlayTitle = document.getElementById("overlayTitle");
+    const overlayMsg = document.getElementById("overlayMsg");
+    const overlaySub = document.getElementById("overlaySub");
+
+    async function refreshStats() {
+      try {
+        const res = await fetch("/api/stats");
+        const data = await res.json();
+        if (!data.ok) return;
+
+        checkedEl.textContent = data.checkedIn;
+        totalEl.textContent = data.totalRegs;
+        capEl.textContent = data.capacityLimit;
+        lockEl.textContent = data.locked ? "LOCKED" : "OPEN";
+      } catch {}
+    }
+
+    function showOverlay(type, title, msg, sub) {
+      overlay.className = "";
+      overlay.classList.add(type);
+      overlayTitle.textContent = title;
+      overlayMsg.textContent = msg || "";
+      overlaySub.textContent = sub || "";
+      overlay.style.display = "flex";
+      setTimeout(() => (overlay.style.display = "none"), 1400);
+    }
+
+    fsBtn.addEventListener("click", async () => {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+        fsBtn.textContent = "Exit Fullscreen";
+      } else {
+        await document.exitFullscreen();
+        fsBtn.textContent = "Fullscreen Mode";
+      }
+    });
+
+
     function setUI(status, message, details) {
       statusEl.textContent = status;
       messageEl.textContent = message || "";
@@ -83,11 +149,18 @@
 
         if (!data.ok) {
           setUI("❌ Invalid", data.message, data);
+          showOverlay("bad", "INVALID", data.message);
+        } else if (data.status === "locked") {
+          setUI("⛔ LOCKED", data.message, data.stats);
+          showOverlay("bad", "LOCKED", data.message, `Checked-in: ${data.stats.checkedIn} / Limit: ${data.stats.capacityLimit}`);
         } else if (data.status === "already") {
           setUI("⚠️ Already Checked-in", data.message, data.registration);
+          showOverlay("warn", "ALREADY", data.message, `ID ${data.registration.id}`);
         } else {
           setUI("✅ Checked-in", data.message, data.registration);
+          showOverlay("good", "CHECKED IN", data.message, `ID ${data.registration.id}`);
         }
+        await refreshStats();
       } catch (e) {
         setUI("❌ Error", "Network/server error", { error: String(e) });
       } finally {
@@ -126,6 +199,17 @@
     startBtn.addEventListener("click", start);
     stopBtn.addEventListener("click", stop);
     manualBtn.addEventListener("click", () => checkin(manualInput.value.trim()));
+
+    // ---- Keep Render service warm (Free plan) ----
+    // Pings /health every 2 minutes while this page is open
+    setInterval(() => {
+      fetch("/health")
+        .then(() => console.log("Keep-alive ping sent"))
+        .catch(() => console.log("Keep-alive failed"));
+    }, 120000); // 120000 ms = 2 minutes
+  
+    refreshStats();
+    setInterval(refreshStats, 5000); // update counts every 5s
   </script>
 </body>
 </html>

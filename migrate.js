@@ -29,6 +29,21 @@ const { pool } = require("./db");
       CREATE INDEX IF NOT EXISTS idx_registrations_phone ON registrations(phone);
     `);
 
+    // Create settings table (key/value)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
+
+    // Default capacity (set once)
+    await pool.query(`
+      INSERT INTO app_settings(key, value)
+      VALUES ('capacity_limit', '300')
+      ON CONFLICT (key) DO NOTHING;
+    `);
+
     console.log("✅ Migration complete");
     process.exit(0);
   } catch (e) {

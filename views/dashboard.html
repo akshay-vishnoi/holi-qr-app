@@ -27,6 +27,16 @@
     <input id="q" placeholder="Search by family name, contact name, phone, email, or ID..." />
     <button id="searchBtn">Search</button>
   </div>
+  <div class="row" style="margin-top:12px;">
+    <div><b>Checked-in:</b> <span id="d_checked">-</span></div>
+    <div><b>Total:</b> <span id="d_total">-</span></div>
+    <div><b>Capacity:</b> <span id="d_cap">-</span></div>
+  </div>
+
+  <div class="row" style="margin-top:10px;">
+    <input id="capInput" type="number" min="1" placeholder="Set capacity limit (e.g., 300 or 400)" />
+    <button id="capBtn">Update Capacity</button>
+  </div>
 
   <div id="status" style="margin-top:10px;"></div>
 
@@ -53,6 +63,41 @@
     const statusEl = document.getElementById("status");
     const table = document.getElementById("table");
     const tbody = document.getElementById("tbody");
+
+    const dChecked = document.getElementById("d_checked");
+    const dTotal = document.getElementById("d_total");
+    const dCap = document.getElementById("d_cap");
+    const capInput = document.getElementById("capInput");
+    const capBtn = document.getElementById("capBtn");
+
+    async function dashStats() {
+      const res = await fetch("/api/stats");
+      const data = await res.json();
+      if (!data.ok) return;
+      dChecked.textContent = data.checkedIn;
+      dTotal.textContent = data.totalRegs;
+      dCap.textContent = data.capacityLimit;
+      capInput.value = data.capacityLimit;
+    }
+
+    capBtn.addEventListener("click", async () => {
+      const n = Number(capInput.value);
+      if (!n) return setStatus("Enter a valid capacity number.");
+      setStatus("Updating capacity...");
+      const res = await fetch("/api/settings/capacity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ capacityLimit: n })
+      });
+      const data = await res.json();
+      if (!data.ok) return setStatus("Failed to update capacity.");
+      setStatus(`Capacity updated to ${data.capacityLimit}.`);
+      await dashStats();
+    });
+
+    dashStats();
+    setInterval(dashStats, 5000);
+
 
     function setStatus(msg) {
       statusEl.textContent = msg || "";
