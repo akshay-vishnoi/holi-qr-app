@@ -1,0 +1,131 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Check-in Scanner</title>
+  <style>
+    body{font-family:system-ui,Arial;margin:16px;max-width:820px}
+    #reader{width:100%;max-width:420px}
+    .box{border:1px solid #ddd;border-radius:12px;padding:12px;margin-top:12px}
+    .status{font-weight:800}
+    button{padding:10px 14px;font-weight:700;margin-right:8px}
+    .row{display:flex;gap:16px;flex-wrap:wrap}
+    .links a{margin-right:12px}
+  </style>
+</head>
+<body>
+  <h1>Event Check-in</h1>
+  <div class="links">
+    <a href="/admin/dashboard">Admin dashboard</a>
+    <a href="/admin/logout">Logout</a>
+  </div>
+
+  <div class="row">
+    <div>
+      <div id="reader"></div>
+      <div style="margin-top:10px;">
+        <button id="startBtn">Start Camera</button>
+        <button id="stopBtn" disabled>Stop</button>
+      </div>
+    </div>
+
+    <div class="box" style="flex:1;min-width:260px">
+      <div class="status" id="status">Ready</div>
+      <div id="message"></div>
+      <pre id="details" style="white-space:pre-wrap;"></pre>
+
+      <hr />
+      <p><b>Manual fallback:</b></p>
+      <input id="manual" style="width:100%;padding:10px" placeholder="Paste QR text here" />
+      <button id="manualBtn" style="margin-top:8px;">Check-in</button>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <script>
+    const statusEl = document.getElementById("status");
+    const messageEl = document.getElementById("message");
+    const detailsEl = document.getElementById("details");
+
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+
+    const manualInput = document.getElementById("manual");
+    const manualBtn = document.getElementById("manualBtn");
+
+    let scanner = null;
+    let lastQr = null;
+    let busy = false;
+
+    function setUI(status, message, details) {
+      statusEl.textContent = status;
+      messageEl.textContent = message || "";
+      detailsEl.textContent = details ? JSON.stringify(details, null, 2) : "";
+    }
+
+    async function checkin(qrText) {
+      if (!qrText) return;
+      if (busy) return;
+      if (qrText === lastQr) return; // prevent double firing on same code
+      busy = true;
+      lastQr = qrText;
+
+      setUI("Checking…", "", null);
+
+      try {
+        const res = await fetch("/api/checkin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ qrText })
+        });
+        const data = await res.json();
+
+        if (!data.ok) {
+          setUI("❌ Invalid", data.message, data);
+        } else if (data.status === "already") {
+          setUI("⚠️ Already Checked-in", data.message, data.registration);
+        } else {
+          setUI("✅ Checked-in", data.message, data.registration);
+        }
+      } catch (e) {
+        setUI("❌ Error", "Network/server error", { error: String(e) });
+      } finally {
+        busy = false;
+        setTimeout(() => { lastQr = null; }, 2000);
+      }
+    }
+
+    async function start() {
+      if (!scanner) scanner = new Html5Qrcode("reader");
+
+      setUI("Starting camera…", "", null);
+
+      try {
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          (decodedText) => checkin(decodedText)
+        );
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        setUI("Scanning…", "Point camera at QR", null);
+      } catch (e) {
+        setUI("❌ Camera Error", "Could not access camera. Try HTTPS or allow permission.", { error: String(e) });
+      }
+    }
+
+    async function stop() {
+      if (!scanner) return;
+      await scanner.stop();
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      setUI("Stopped", "", null);
+    }
+
+    startBtn.addEventListener("click", start);
+    stopBtn.addEventListener("click", stop);
+    manualBtn.addEventListener("click", () => checkin(manualInput.value.trim()));
+  </script>
+</body>
+</html>

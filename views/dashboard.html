@@ -1,0 +1,145 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin Dashboard</title>
+  <style>
+    body{font-family:system-ui,Arial;margin:16px;max-width:1000px}
+    input{padding:10px;width:100%;max-width:520px}
+    button{padding:10px 14px;font-weight:700}
+    table{border-collapse:collapse;width:100%;margin-top:12px}
+    th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:14px}
+    th{background:#f6f6f6}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .links a{margin-right:12px}
+    .tag{padding:2px 8px;border:1px solid #ccc;border-radius:999px;font-size:12px}
+  </style>
+</head>
+<body>
+  <h1>Admin Dashboard</h1>
+  <div class="links">
+    <a href="/admin/checkin">Scanner</a>
+    <a href="/admin/logout">Logout</a>
+  </div>
+
+  <div class="row" style="margin-top:12px;">
+    <input id="q" placeholder="Search by family name, contact name, phone, email, or ID..." />
+    <button id="searchBtn">Search</button>
+  </div>
+
+  <div id="status" style="margin-top:10px;"></div>
+
+  <table id="table" style="display:none;">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Family</th>
+        <th>Contact</th>
+        <th>Phone</th>
+        <th>Adults</th>
+        <th>Kids</th>
+        <th>Status</th>
+        <th>Checked-in At</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+
+  <script>
+    const qEl = document.getElementById("q");
+    const btn = document.getElementById("searchBtn");
+    const statusEl = document.getElementById("status");
+    const table = document.getElementById("table");
+    const tbody = document.getElementById("tbody");
+
+    function setStatus(msg) {
+      statusEl.textContent = msg || "";
+    }
+
+    function fmtDate(s) {
+      if (!s) return "";
+      try { return new Date(s).toLocaleString(); } catch { return s; }
+    }
+
+    async function search() {
+      const q = qEl.value.trim();
+      if (!q) { setStatus("Type something to search."); return; }
+
+      setStatus("Searching...");
+      table.style.display = "none";
+      tbody.innerHTML = "";
+
+      const res = await fetch(`/api/registrations/search?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+
+      if (!data.ok) {
+        setStatus("Search failed.");
+        return;
+      }
+
+      if (!data.results.length) {
+        setStatus("No results.");
+        return;
+      }
+
+      setStatus(`Found ${data.results.length} result(s).`);
+      table.style.display = "table";
+
+      for (const r of data.results) {
+        const tr = document.createElement("tr");
+
+        const statusTag = r.checked_in
+          ? '<span class="tag">Checked-in</span>'
+          : '<span class="tag">Not checked-in</span>';
+
+        tr.innerHTML = `
+          <td>${r.id}</td>
+          <td>${r.family_name}</td>
+          <td>${r.primary_contact_name}</td>
+          <td>${r.phone || ""}</td>
+          <td>${r.adults}</td>
+          <td>${r.kids}</td>
+          <td>${statusTag}</td>
+          <td>${fmtDate(r.checked_in_at)}</td>
+          <td>
+            ${r.checked_in ? `<button data-id="${r.id}">Undo</button>` : ""}
+          </td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      // attach handlers for undo buttons
+      tbody.querySelectorAll("button[data-id]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const id = Number(btn.getAttribute("data-id"));
+          if (!id) return;
+
+          btn.disabled = true;
+          btn.textContent = "Undoing...";
+
+          const res = await fetch("/api/registrations/undo-checkin", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id })
+          });
+          const data = await res.json();
+
+          if (!data.ok) {
+            setStatus("Undo failed.");
+          } else {
+            setStatus(`Undo successful for ID ${id}.`);
+            await search();
+          }
+        });
+      });
+    }
+
+    btn.addEventListener("click", search);
+    qEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") search();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Registration Successful</title>
+  <style>
+    body{font-family:system-ui,Arial;margin:24px;max-width:720px}
+    .card{border:1px solid #ddd;padding:16px;border-radius:12px}
+    img{max-width:320px;width:100%}
+    a{display:inline-block;margin-top:12px}
+  </style>
+</head>
+<body>
+  <h1>✅ Registered!</h1>
+  <div class="card">
+    <p><b>Registration ID:</b> {{REG_ID}}</p>
+    <p>Show this QR code at entry:</p>
+    <img src="{{QR_DATA_URL}}" alt="QR Code" />
+    <p>
+      <a href="{{QR_DATA_URL}}" download="holi-registration-{{REG_ID}}.png">Download QR</a>
+    </p>
+  </div>
+
+  <p style="margin-top:18px;">
+    <a href="/register">Register another family</a>
+  </p>
+</body>
+</html>
